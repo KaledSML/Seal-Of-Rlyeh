@@ -1,0 +1,29 @@
+{
+    "target_folder": "c:\\Users\\kaled\\Videos\\shh",
+    "vault_path": "C:\\Users\\kaled\\Documents\\Mis imágenes\\shh.rlyeh",
+    "salt": [
+        5,
+        156,
+        79,
+        54,
+        46,
+        220,
+        24,
+        12,
+        136,
+        43,
+        92,
+        66,
+        248,
+        242,
+        90,
+        75
+    ],
+    "attempts_left": 0,
+    "state": "quarantined",
+    "email_config": {
+        "sender": "kaledsanmartinlastra@gmail.com",
+        "smtp_server": "smtp.gmail.com",
+        "smtp_port": 465
+    }
+}

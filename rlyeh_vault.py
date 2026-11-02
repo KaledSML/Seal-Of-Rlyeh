@@ -174,10 +174,11 @@ def open_container(container, output_dir, password):
         decrypt_file(str(src), str(archive), password)
 
         with zipfile.ZipFile(archive, "r") as zf:
+            members = _safe_members(zf)
+
             if zf.testzip() is not None:
                 raise ValueError("El archivo ZIP está dañado.")
 
-            members = _safe_members(zf)
             root = staging.resolve()
 
             for info, relative, kind, is_dir in members:

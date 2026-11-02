@@ -1,8 +1,11 @@
 ﻿
 import unittest
+import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from rlyeh_crypto import encrypt_file
 from rlyeh_vault import seal_path, open_container
 
 
@@ -98,8 +101,6 @@ class TestVault(unittest.TestCase):
             "Nug-Soth",
         )
 
-    # NUEVAS PRUEBAS
-
     def test_single_file_is_sealed_and_recovered(self):
         original_file = self.root / "individual.txt"
         container = self.root / "individual.rlyeh"
@@ -159,6 +160,122 @@ class TestVault(unittest.TestCase):
             )
 
         self.assertFalse(self.container.exists())
+
+    def test_path_traversal_is_rejected(self):
+        malicious_zip = self.root / "malicioso.zip"
+        malicious_container = self.root / "malicioso.rlyeh"
+
+        escaped_file = self.root / "archivo_fuera.txt"
+        output = self.root / "recuperacion_maliciosa"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr(
+                "../archivo_fuera.txt",
+                "Este archivo no debería extraerse.",
+            )
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "ruta peligrosa",
+        ):
+            open_container(
+                malicious_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
+        self.assertFalse(escaped_file.exists())
+
+    def test_duplicate_zip_entries_are_rejected(self):
+        malicious_zip = self.root / "duplicado.zip"
+        malicious_container = self.root / "duplicado.rlyeh"
+        output = self.root / "recuperacion_duplicada"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("nota.txt", "Primera versión")
+            zf.writestr("nota.txt", "Segunda versión")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "rutas duplicadas",
+        ):
+            open_container(
+                malicious_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
+
+    def test_file_size_limit_is_enforced(self):
+        malicious_zip = self.root / "grande.zip"
+        malicious_container = self.root / "grande.rlyeh"
+        output = self.root / "recuperacion_grande"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("archivo.txt", b"123456")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        # Reducimos el límite a 5 bytes solo durante esta prueba.
+        with patch("rlyeh_vault.MAX_FILE_SIZE", 5):
+            with self.assertRaisesRegex(
+                ValueError,
+                "Un archivo supera el límite permitido",
+            ):
+                open_container(
+                    malicious_container,
+                    output,
+                    self.password,
+                )
+
+        self.assertFalse(output.exists())
+
+    def test_total_size_limit_is_enforced(self):
+        malicious_zip = self.root / "total_grande.zip"
+        malicious_container = self.root / "total_grande.rlyeh"
+        output = self.root / "recuperacion_total_grande"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("archivo1.txt", b"123")
+            zf.writestr("archivo2.txt", b"456")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        # Reducimos el límite total a 5 bytes solo durante esta prueba.
+        with patch("rlyeh_vault.MAX_TOTAL_SIZE", 5):
+            with self.assertRaisesRegex(
+                ValueError,
+                "El contenido supera el límite de extracción",
+            ):
+                open_container(
+                    malicious_container,
+                    output,
+                    self.password,
+                )
+
+        self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,13 @@
+﻿# Entorno de Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Datos generados y archivos sensibles
+*.rlyeh
+*.zip
+.env
+*.log
+
+# Imagen de referencia visual
+cimitarra.webp

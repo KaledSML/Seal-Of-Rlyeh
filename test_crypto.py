@@ -1,101 +1,126 @@
-﻿from pathlib import Path
+﻿
+import unittest
+from pathlib import Path
 from tempfile import TemporaryDirectory
-from hashlib import sha256
 
 from rlyeh_crypto import encrypt_file, decrypt_file
 
-with TemporaryDirectory() as temp:
-    root = Path(temp)
-    original = root / "mensaje.txt"
-    container = root / "mensaje.rlyeh"
-    recovered = root / "recuperado.txt"
-    rejected = root / "no_deberia_existir.txt"
 
-    original.write_text(
-        "Ph'nglui mglw'nafh R'lyeh wgah'nagl fhtagn.",
-        encoding="utf-8",
-    )
+class TestCrypto(unittest.TestCase):
 
-    encrypt_file(str(original), str(container), "Clave-de-prueba-938!")
-    before = sha256(container.read_bytes()).hexdigest()
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
 
-    try:
-        decrypt_file(str(container), str(rejected), "Clave-incorrecta")
-        raise AssertionError("ERROR: se aceptó una contraseña incorrecta.")
-    except ValueError as exc:
-        if "Contraseña incorrecta" not in str(exc):
-            raise
-        print("OK: contraseña incorrecta rechazada.")
+        self.original = self.root / "mensaje.txt"
+        self.container = self.root / "mensaje.rlyeh"
+        self.recovered = self.root / "recuperado.txt"
+        self.rejected = self.root / "no_deberia_existir.txt"
 
-    after = sha256(container.read_bytes()).hexdigest()
-    assert before == after, "ERROR: el contenedor fue alterado."
-    assert not rejected.exists(), "ERROR: se creó una salida no autorizada."
-    print("OK: contenedor intacto y sin archivo de salida indebido.")
+        self.password = "Clave-de-prueba-938!"
 
-    decrypt_file(str(container), str(recovered), "Clave-de-prueba-938!")
-    assert recovered.read_bytes() == original.read_bytes()
-    print("OK: recuperación exacta con la contraseña correcta.")
+        self.original.write_text(
+            "Ph'nglui mglw'nafh R'lyeh wgah'nagl fhtagn.",
+            encoding="utf-8",
+        )
 
-
-    # Prueba 1: no sobrescribir un contenedor existente.
-    container_before = container.read_bytes()
-
-    try:
         encrypt_file(
-            str(original),
-            str(container),
-            "Otra-clave-de-prueba",
+            str(self.original),
+            str(self.container),
+            self.password,
         )
-        raise AssertionError(
-            "ERROR: se sobrescribió un contenedor existente."
-        )
-    except FileExistsError:
-        print("OK: no se sobrescribe un contenedor existente.")
 
-    assert container.read_bytes() == container_before
+    def tearDown(self):
+        self.temp.cleanup()
 
-    # Prueba 2: no sobrescribir un archivo recuperado existente.
-    recovered_before = recovered.read_bytes()
+    def test_wrong_password_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Contraseña incorrecta"):
+            decrypt_file(
+                str(self.container),
+                str(self.rejected),
+                "Clave-incorrecta",
+            )
 
-    try:
+        self.assertFalse(self.rejected.exists())
+
+    def test_container_is_not_modified_after_wrong_password(self):
+        before = self.container.read_bytes()
+
+        with self.assertRaises(ValueError):
+            decrypt_file(
+                str(self.container),
+                str(self.rejected),
+                "Clave-incorrecta",
+            )
+
+        after = self.container.read_bytes()
+
+        self.assertEqual(before, after)
+        self.assertFalse(self.rejected.exists())
+
+    def test_correct_password_recovers_original_file(self):
         decrypt_file(
-            str(container),
-            str(recovered),
-            "Clave-de-prueba-938!",
+            str(self.container),
+            str(self.recovered),
+            self.password,
         )
-        raise AssertionError(
-            "ERROR: se sobrescribió un archivo existente."
+
+        self.assertEqual(
+            self.original.read_bytes(),
+            self.recovered.read_bytes(),
         )
-    except FileExistsError:
-        print("OK: no se sobrescribe un archivo existente.")
 
-    assert recovered.read_bytes() == recovered_before
+    def test_existing_container_is_not_overwritten(self):
+        before = self.container.read_bytes()
 
-    # Prueba 3: rechazar un contenedor alterado.
-    damaged = root / "alterado.rlyeh"
-    damaged_data = bytearray(container.read_bytes())
-    damaged_data[-1] ^= 1
-    damaged.write_bytes(damaged_data)
+        with self.assertRaises(FileExistsError):
+            encrypt_file(
+                str(self.original),
+                str(self.container),
+                "Otra-clave-de-prueba",
+            )
 
-    damaged_output = root / "salida_alterada.txt"
+        self.assertEqual(before, self.container.read_bytes())
 
-    try:
+    def test_existing_output_file_is_not_overwritten(self):
         decrypt_file(
-            str(damaged),
-            str(damaged_output),
-            "Clave-de-prueba-938!",
-        )
-        raise AssertionError(
-            "ERROR: se aceptó un contenedor alterado."
+            str(self.container),
+            str(self.recovered),
+            self.password,
         )
 
-    except ValueError as exc:
-        if "Contraseña incorrecta o contenedor alterado" not in str(exc):
-            raise
-        print("OK: contenedor alterado rechazado.")
+        before = self.recovered.read_bytes()
+
+        with self.assertRaises(FileExistsError):
+            decrypt_file(
+                str(self.container),
+                str(self.recovered),
+                self.password,
+            )
+
+        self.assertEqual(before, self.recovered.read_bytes())
+
+    def test_altered_container_is_rejected(self):
+        damaged = self.root / "alterado.rlyeh"
+
+        damaged_data = bytearray(self.container.read_bytes())
+        damaged_data[-1] ^= 1
+        damaged.write_bytes(damaged_data)
+
+        damaged_output = self.root / "salida_alterada.txt"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Contraseña incorrecta o contenedor alterado",
+        ):
+            decrypt_file(
+                str(damaged),
+                str(damaged_output),
+                self.password,
+            )
+
+        self.assertFalse(damaged_output.exists())
 
 
-    assert not damaged_output.exists()
-
-
-print("TODAS LAS PRUEBAS SUPERADAS.")
+if __name__ == "__main__":
+    unittest.main()

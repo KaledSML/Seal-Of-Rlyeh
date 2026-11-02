@@ -98,6 +98,68 @@ class TestVault(unittest.TestCase):
             "Nug-Soth",
         )
 
+    # NUEVAS PRUEBAS
+
+    def test_single_file_is_sealed_and_recovered(self):
+        original_file = self.root / "individual.txt"
+        container = self.root / "individual.rlyeh"
+        output = self.root / "salida"
+
+        original_content = "Un archivo individual bajo el sello."
+        original_file.write_text(original_content, encoding="utf-8")
+
+        seal_path(
+            original_file,
+            container,
+            self.password,
+        )
+
+        self.assertTrue(original_file.exists())
+        self.assertTrue(container.is_file())
+
+        open_container(
+            container,
+            output,
+            self.password,
+        )
+
+        recovered_file = output / "individual.txt"
+
+        self.assertEqual(
+            original_content,
+            recovered_file.read_text(encoding="utf-8"),
+        )
+
+    def test_existing_destination_is_not_overwritten(self):
+        self.container.write_bytes(b"CONTENIDO ORIGINAL")
+
+        with self.assertRaises(FileExistsError):
+            seal_path(
+                self.source,
+                self.container,
+                self.password,
+            )
+
+        self.assertEqual(
+            self.container.read_bytes(),
+            b"CONTENIDO ORIGINAL",
+        )
+
+    def test_nonexistent_source_is_rejected(self):
+        missing_source = self.root / "no_existe.txt"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "El origen no existe",
+        ):
+            seal_path(
+                missing_source,
+                self.container,
+                self.password,
+            )
+
+        self.assertFalse(self.container.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

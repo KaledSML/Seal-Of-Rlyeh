@@ -121,6 +121,83 @@ class TestCrypto(unittest.TestCase):
 
         self.assertFalse(damaged_output.exists())
 
+    # NUEVAS PRUEBAS
+
+    def test_empty_password_is_rejected(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "La contraseña no puede estar vacía",
+        ):
+            encrypt_file(
+                str(self.original),
+                str(self.root / "sin_clave.rlyeh"),
+                "",
+            )
+
+    def test_empty_file_is_recovered_correctly(self):
+        empty_file = self.root / "vacio.txt"
+        empty_container = self.root / "vacio.rlyeh"
+        empty_recovered = self.root / "vacio_recuperado.txt"
+
+        empty_file.write_bytes(b"")
+
+        encrypt_file(
+            str(empty_file),
+            str(empty_container),
+            self.password,
+        )
+
+        decrypt_file(
+            str(empty_container),
+            str(empty_recovered),
+            self.password,
+        )
+
+        self.assertEqual(b"", empty_recovered.read_bytes())
+
+    def test_binary_file_is_recovered_exactly(self):
+        binary_file = self.root / "datos.bin"
+        binary_container = self.root / "datos.rlyeh"
+        binary_recovered = self.root / "datos_recuperados.bin"
+
+        original_data = bytes(range(256)) + b"\x00\xFF\xFE"
+        binary_file.write_bytes(original_data)
+
+        encrypt_file(
+            str(binary_file),
+            str(binary_container),
+            self.password,
+        )
+
+        decrypt_file(
+            str(binary_container),
+            str(binary_recovered),
+            self.password,
+        )
+
+        self.assertEqual(
+            original_data,
+            binary_recovered.read_bytes(),
+        )
+
+    def test_invalid_header_is_rejected(self):
+        invalid_container = self.root / "invalido.rlyeh"
+        invalid_container.write_bytes(b"XXXXXXXX" + b"\x00" * 44)
+
+        invalid_output = self.root / "salida_invalida.txt"
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "no es un contenedor RLYEH compatible",
+        ):
+            decrypt_file(
+                str(invalid_container),
+                str(invalid_output),
+                self.password,
+            )
+
+        self.assertFalse(invalid_output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

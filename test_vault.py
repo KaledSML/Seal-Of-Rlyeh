@@ -388,5 +388,143 @@ class TestVault(unittest.TestCase):
 
         self.assertFalse(output.exists())
 
+    def test_invalid_zip_content_is_rejected(self):
+        invalid_data = self.root / "no_es_un_zip.bin"
+        invalid_container = self.root / "no_es_un_zip.rlyeh"
+        output = self.root / "recuperacion_invalida"
+
+        invalid_data.write_bytes(
+            b"Esto no contiene una estructura ZIP valida."
+        )
+
+        encrypt_file(
+            str(invalid_data),
+            str(invalid_container),
+            self.password,
+        )
+
+        with self.assertRaises(zipfile.BadZipFile):
+            open_container(
+                invalid_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
+
+    def test_member_limit_is_enforced(self):
+        malicious_zip = self.root / "muchas_entradas.zip"
+        malicious_container = self.root / "muchas_entradas.rlyeh"
+        output = self.root / "recuperacion_muchas_entradas"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("archivo1.txt", "Primero")
+            zf.writestr("archivo2.txt", "Segundo")
+            zf.writestr("archivo3.txt", "Tercero")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        # Reducimos el límite a 2 entradas durante esta prueba.
+        with patch("rlyeh_vault.MAX_MEMBERS", 2):
+            with self.assertRaisesRegex(
+                ValueError,
+                "El contenedor contiene demasiados archivos",
+            ):
+                open_container(
+                    malicious_container,
+                    output,
+                    self.password,
+                )
+
+        self.assertFalse(output.exists())
+
+    def test_corrupted_zip_crc_is_rejected(self):
+        damaged_zip = self.root / "danado.zip"
+        damaged_container = self.root / "danado.rlyeh"
+        output = self.root / "recuperacion_danada"
+
+        with zipfile.ZipFile(damaged_zip, "w") as zf:
+            zf.writestr("nota.txt", "Este contenido será alterado.")
+
+        # Alteramos un byte de los datos internos del ZIP.
+        with zipfile.ZipFile(damaged_zip, "r") as zf:
+            info = zf.getinfo("nota.txt")
+            data_position = info.header_offset + 30
+            data_position += len(info.filename.encode("utf-8"))
+            data_position += len(info.extra)
+
+        with damaged_zip.open("r+b") as file:
+            file.seek(data_position)
+            original_byte = file.read(1)
+            file.seek(data_position)
+            file.write(bytes([original_byte[0] ^ 0xFF]))
+
+        encrypt_file(
+            str(damaged_zip),
+            str(damaged_container),
+            self.password,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "El archivo ZIP está dañado",
+        ):
+            open_container(
+                damaged_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
+
+    def test_folder_can_be_sealed_recovered_and_sealed_again(self):
+        first_container = self.root / "primero.rlyeh"
+        first_recovery = self.root / "primera_recuperacion"
+
+        second_container = self.root / "segundo.rlyeh"
+        second_recovery = self.root / "segunda_recuperacion"
+
+        seal_path(
+            self.source,
+            first_container,
+            self.password,
+        )
+
+        open_container(
+            first_container,
+            first_recovery,
+            self.password,
+        )
+
+        recovered_folder = first_recovery / "documentos"
+
+        seal_path(
+            recovered_folder,
+            second_container,
+            self.password,
+        )
+
+        open_container(
+            second_container,
+            second_recovery,
+            self.password,
+        )
+
+        second_folder = second_recovery / "documentos"
+
+        self.assertEqual(
+            (self.source / "nota.txt").read_bytes(),
+            (second_folder / "nota.txt").read_bytes(),
+        )
+
+        self.assertEqual(
+            (self.source / "subcarpeta" / "secreto.txt").read_bytes(),
+            (second_folder / "subcarpeta" / "secreto.txt").read_bytes(),
+        )
+
 if __name__ == "__main__":
     unittest.main()

@@ -277,6 +277,116 @@ class TestVault(unittest.TestCase):
 
         self.assertFalse(output.exists())
 
+    def test_reserved_windows_names_are_rejected(self):
+        malicious_zip = self.root / "reservado.zip"
+        malicious_container = self.root / "reservado.rlyeh"
+        output = self.root / "recuperacion_reservada"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("CON.txt", "Nombre reservado")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Nombre de archivo reservado en Windows",
+        ):
+            open_container(
+                malicious_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
+
+    def test_case_insensitive_duplicate_names_are_rejected(self):
+        malicious_zip = self.root / "colision.zip"
+        malicious_container = self.root / "colision.rlyeh"
+        output = self.root / "recuperacion_colision"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("Nota.txt", "Primera versión")
+            zf.writestr("nota.txt", "Segunda versión")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "rutas duplicadas",
+        ):
+            open_container(
+                malicious_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
+
+    def test_windows_trailing_dot_and_space_names_are_rejected(self):
+        malicious_zip = self.root / "punto_espacio.zip"
+        malicious_container = self.root / "punto_espacio.rlyeh"
+        output = self.root / "recuperacion_punto_espacio"
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("secreto.txt.", "Archivo con punto final")
+            zf.writestr("secreto.txt ", "Archivo con espacio final")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Nombre de archivo",
+        ):
+            open_container(
+                malicious_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
+
+    def test_symbolic_links_are_rejected(self):
+        malicious_zip = self.root / "symlink.zip"
+        malicious_container = self.root / "symlink.rlyeh"
+        output = self.root / "recuperacion_symlink"
+
+        # Creamos una entrada ZIP marcada como enlace simbólico.
+        symlink_info = zipfile.ZipInfo("enlace.txt")
+        symlink_info.create_system = 3
+        symlink_info.external_attr = (0o120777 << 16)
+
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr(symlink_info, "C:/archivo_externo.txt")
+
+        encrypt_file(
+            str(malicious_zip),
+            str(malicious_container),
+            self.password,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Tipo de archivo no permitido",
+        ):
+            open_container(
+                malicious_container,
+                output,
+                self.password,
+            )
+
+        self.assertFalse(output.exists())
 
 if __name__ == "__main__":
     unittest.main()
